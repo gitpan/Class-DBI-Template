@@ -2,9 +2,10 @@ package Class::DBI::Template;
 use strict;
 use warnings;
 use Template;
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 use base qw/Class::Data::Inheritable Exporter/;
 use Class::DBI::Template::Stash;
+use Carp qw/cluck croak/;
 
 our @EXPORT = qw/
 	template_define
@@ -34,8 +35,9 @@ sub _template_hash {
 sub template_define { shift; _template_hash('define',@_); }
 sub template_data { shift; _template_hash('data',@_); }
 my %configure_defaults = (
-	stash_order	=> $Class::DBI::Template::Stash::default_order,
-	stash_preload => [qw/arguments/],
+	stash_order		=> $Class::DBI::Template::Stash::default_order,
+	stash_preload	=> $Class::DBI::Template::Stash::default_preload,
+	stash_cache		=> 1,
 );
 sub template_configure {
 	my $self = shift;
@@ -98,13 +100,23 @@ sub template_render {
 	$vars{_ARGS} = \%args;
 	$vars{_CONF} = __PACKAGE__->_template_configure;
 
-	my $template = Template->new(\%opts);
-	if(my $out = $self->template_configure('output')) {
-		$template->process($tmpl, \%vars, \$out) || die $template->error;
-	} else {
-		my $out = '';
-		$template->process($tmpl, \%vars, \$out) || die $template->error;
+	my $out = '';
+	eval {
+		my $template = Template->new(\%opts);
+		if($out = $self->template_configure('output')) {
+			$template->process($tmpl, \%vars, \$out) || die $template->error;
+			return;
+		} else {
+			$template->process($tmpl, \%vars, \$out) || die $template->error;
+		}
+	};
+	if($@) {
+		croak "Template processing failed: $@";
+	}
+	if($out) {
 		return $out;
+	} else {
+		die "No output found\n";
 	}
 }
 

@@ -2,10 +2,12 @@ package Class::DBI::Template::Stash;
 use strict;
 use warnings;
 use base qw/Template::Stash/;
+our $VERSION = '0.03';
 require UNIVERSAL;
 
-use vars qw/$default_order/;
-$default_order = [qw/arguments columns template_data functions/];
+use vars qw/$default_order $default_preload/;
+$default_preload = [qw/arguments/];
+$default_order = [qw/columns template_data functions/];
 
 my %handlers = (
 	columns	=> sub {
@@ -30,6 +32,7 @@ my %handlers = (
 		my($self,$this,$ident,$args) = @_;
 		return if ref $ident;
 		return unless UNIVERSAL::can($this,$ident);
+		return unless ref($this);
 		return $this->$ident($args);
 	},
 	environment => sub {
@@ -68,30 +71,67 @@ sub unfold {
 	return @order;
 }
 
-sub undefined {
+sub get {
+	my $self = shift;
+	my $ident = shift;
+	my $args = shift;
+	my $root = $self;
+	my $result;
+
+	return '' if $ident eq '_SELF';
+
+	if (ref $ident eq 'ARRAY'
+		|| ($ident =~ /\./)
+		&& ($ident = [ map { s/\(.*$//; ($_,0) } split(/\./, $ident) ])) {
+
+		foreach(my $i = 0; $i <= $#$ident; $i += 2) {
+			$result = $self->_dotop($root, @$ident[$i, $i+1]);
+			unless($i || defined $result) {
+				$result = $self->find_item(@$ident[$i, $i+1]);
+			}
+			last unless defined $result;
+			$root = $result;
+		}
+	} else {
+		$result = $self->_dotop($root, $ident, $args);
+		unless(defined $result) {
+			$result = $self->find_item($ident,$args);
+		}
+	}
+	return defined $result ? $result : $self->undefined($ident,$args);
+}
+
+sub find_item {
 	my $self = shift;
 	my $ident = shift;
 	my $args = shift;
 
-	return '' if $ident eq '_SELF';
+	die "Can't find_item(_SELF)" if $ident eq '_SELF';
 	my $this = $self->{'_SELF'} || die "Couldn't find myself!";
 	my $conf = $self->{'_CONF'} || {};
 
+	my $result;
+	# TODO - this needs better error handling
 	foreach my $order (unfold($conf->{stash_order})) {
-		if(!ref($order) && exists $handlers{$order}) {
-			my $result = $handlers{$order}->($self,$this,$ident,$args);
-			return $result if defined($result);
-		} elsif(ref($order) =~ /CODE/) {
-			my $result = eval { $order->($this,$ident,$args) };
-			return $result if defined($result);
-		} elsif(ref($order) =~ /HASH/) {
-			if(defined $order->{$ident}) { return $order->{$ident}; }
-		} else {
-			die "Unknown stash_order argument '$order'\n";
-		}
+		# basically need to eval everything in here, in case the functions
+		# being called die.  If they die we try the next handler.
+		$result = eval {
+			if(!ref($order) && exists $handlers{$order}) {
+				return $handlers{$order}->($self,$this,$ident,$args);
+			} elsif(ref($order) =~ /CODE/) {
+				return $order->($this,$ident,$args);
+			} elsif(ref($order) =~ /HASH/) {
+				return $order->{$ident};
+			}
+		};
+		last if(defined $result && !$@);
 	}
 
-	return '';
+	if($conf->{stash_cache}) {
+		$self->set($ident,$result);
+	}
+
+	return $result;
 }
 
 1;
@@ -111,9 +151,9 @@ Class::DBI::Template::Stash - Template::Stash subclass for Class::DBI::Template
 
 There is nothing you need to do for this module, it is setup for you when you
 use Class::DBI::Template.  It provides a subclass of Template::Stash that
-overrides it's undefined() method.  The new method knows how to find the
-Class::DBI object that we are rendering, and how to get information out of it
-for use by the Template module for rendering your template.
+overrides it's get() method.  The new method knows how to find the Class::DBI
+object that we are rendering, and how to get information out of it for use by
+the Template module for rendering your template.
 
 =head1 EXPORT
 
@@ -122,25 +162,49 @@ when building the Template object which will render your data.
 
 =head1 CONFIGURATION
 
+There are a couple of configuration options for this module, which can be
+passed either to template_configure() in the class being setup, or to
+template_render() while rendering an object.
+
 The only configuration this module has is -stash_order and -stash_preload
 keys, which can be passed to template_configure in the class using
-Class::DBI::Template.  Both these options take an array reference as an
-argument.
+Class::DBI::Template (or to the template_render() method when rendering.)  
+Both these options take an array reference as an argument.
 
--stash_order determines what order the stash module uses in searching for data
+=over 4
+
+=item -stash_order
+
+This determines what order the stash module uses in searching for data
 for your object. The first option in the -stash_order search that returns a
 defined value will cause the search to end and the value to be returned.
-Undefined values cause the search to continue unless otherwise noted below.
+See 'SEARCH OPTIONS' below for a list of the items that can be passed to
+-stash_order.
 
--stash_preload lists options that should have their data preloaded into the
+=item -stash_preload
+
+This lists options that should have their data preloaded into the
 stash object.  This saves you the time of having the stash search for their
 values, at the expense of having to determine all their values up front.  It
 is up to you to determine which way is faster based on your data.  Options
 passed to -stash_preload will automatically be removed from -stash_order if
 they are there.
+See 'SEARCH OPTIONS' below for a list of the items that can be passed to
+-stash_preload.
+
+=item -stash_cache
+
+By default, when this module is required to search for a variable, it adds
+the item it found to the stash, to prevent having to search for it in the
+future.  Set -stash_cache to a false value to prevent this caching.
+
+=back
+
+=head2 SEARCH OPTIONS
 
 Options that you can pass to -stash_order or -stash_preload (except where
-noted) are:
+noted) are listed below.  Undefined values cause the search to continue
+unless otherwise noted below.
 
 =over 4
 
@@ -207,7 +271,7 @@ template_data to preload them.
 =back
 
 The default value for -stash_order is ['columns', 'template_data', 'functions'].
- If no match is found in the -stash_order search for the term in question, then
+If no match is found in the -stash_order search for the term in question, then
 it will be replaced in the template with an empty string.  If -stash_order
 contains a lone + sign anywhere in the search order, it will be replaced with
 the default -stash_order.  If the same option is specified more than once in
