@@ -1,0 +1,6 @@
+Revision history for Perl extension Class::DBI::Template.
+
+0.01  Mon Nov 22 20:53:06 2004
+	- original version; created by h2xs 1.23 with options
+		-X Class::DBI::Template
+
