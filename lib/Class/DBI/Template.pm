@@ -2,7 +2,7 @@ package Class::DBI::Template;
 use strict;
 use warnings;
 use Template;
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 use base qw/Class::Data::Inheritable Exporter/;
 use Class::DBI::Template::Stash;
 
@@ -208,10 +208,6 @@ to the data available to the template and of configuration options for the
 rendering.  Any arguments passed in the hash which contain a key that starts
 with a - are considered to be configuration options.  Arguments starting with
 anything else will be passed to the template.
-
-=over 4
-
-=i
 
 Note that if the value you pass as a $template_name was not defined as the
 name of a template using template_define(), $template_name will be passed

@@ -4,4 +4,5 @@ MANIFEST
 README
 t/Class-DBI-Template.t
 lib/Class/DBI/Template.pm
+lib/Class/DBI/Template/Stash.pm
 META.yml                                 Module meta-data (added by MakeMaker)
